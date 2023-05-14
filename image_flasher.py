@@ -6,10 +6,11 @@ import logging
 import argparse
 import traceback
 from typing import List
+import tftpy
+import threading
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
-
 
 def main():
     parser = argparse.ArgumentParser(
@@ -25,23 +26,63 @@ def main():
         help='Serial console to use')
 
     parser.add_argument(
-        '-e',
-        '--ext_tftp_root',
+        '-t',
+        '--tftp',
+        nargs='?',
         type=str,
-        required=True,
-        help='Root of external TFTP directory, where chunk.bin will be created')
+        default=None,
+        const="AUTO",
+        help="Start our own TFTP server to feed files to u-boot")
 
     args = parser.parse_args()
 
-    do_flash_image(args)
+    tftp_root = os.getcwd()
 
-def do_flash_image(args):
+    if args.tftp == "AUTO":
+        tftp_ip = "127.0.0.1"
+        tftp_port = 69
+        log.info(f"Starting our TFTP server {tftp_ip}:{tftp_port}")
+
+        tftpsrv = PYTFTPServer(tftp_ip, tftp_port, tftp_root)
+        TFTP_srv_thread = threading.Thread(name="TFTP Server thread", target=tftpsrv.start_tftp_server)
+        TFTP_srv_thread.start()
+
+    elif os.path.isdir(args.tftp):
+        # use external path
+        tftp_root = args.tftp
+        log.info(f"Use external TFTP root {tftp_root}")
+    else:
+        raise Exception("-t parameter is not external TFTP root.")
+
+    do_flash_image(args, tftp_root)
+
+    if args.tftp == "AUTO":
+        log.info("Stopping our TFTP server")
+        tftpsrv.stop_tftp_server()
+        TFTP_srv_thread.join()
+
+
+class PYTFTPServer(object):
+    def __init__(self, ip, port, folder):
+        self.ip = ip
+        self.port = port
+        self.tftp_server = tftpy.TftpServer(folder)
+
+    def start_tftp_server(self):
+        self.tftp_server.listen(self.ip, self.port)
+
+    def stop_tftp_server(self):
+        self.tftp_server.stop()
+
+
+def do_flash_image(args, tftp_root):
 
     conn = open_connection(args)
 
     uboot_propmt = "=>"
     # wait for interruption prompt
     try:
+        log.info('Waiting for "Hit any key to stop autoboot"...')
         conn_wait_for(conn, "Hit any key to stop autoboot:")
         conn_send(conn, "\r")
     except:
@@ -69,7 +110,7 @@ def do_flash_image(args):
     f_img = open(args.image, "rb")
     bytes_sent = 0
     block_start = base_addr // mmc_block_size
-    out_fullname = os.path.join(args.ext_tftp_root, chunk_filename)
+    out_fullname = os.path.join(tftp_root, chunk_filename)
 
     # switch to required MMC device/partition
     conn_send(conn, f"mmc dev {mmc_device} {mmc_part}\r")
