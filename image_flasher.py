@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import pathlib
 import serial
 import logging
 import argparse
@@ -17,9 +18,9 @@ def main():
     parser = argparse.ArgumentParser(
         description='Flash image files through u-boot and tftp', )
     parser.add_argument(
-        '-i',
-        '--image',
-        help='Path to the image file')
+        'image',
+        type=pathlib.Path,
+        help='Name of image file to flash')
 
     parser.add_argument(
         '-s',
