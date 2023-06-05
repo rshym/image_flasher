@@ -16,7 +16,8 @@ log = logging.getLogger(__name__)
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Flash image files through u-boot and tftp', )
+        description='Flash image files through u-boot and tftp')
+
     parser.add_argument(
         'image',
         type=pathlib.Path,
@@ -76,6 +77,8 @@ class PYTFTPServer(object):
 
 def do_flash_image(args, tftp_root):
 
+    log.info(args.image)
+
     conn = open_connection(args)
 
     uboot_propmt = "=>"
@@ -89,11 +92,6 @@ def do_flash_image(args, tftp_root):
         conn_send(conn, "\r")
         conn_wait_for(conn, uboot_propmt)
 
-    log.info(args.image)
-    # do in loop:
-    # - read X MB chunk from image file
-    # - save chunk to file in tftp root
-    # - tell u-boot to 'tftp-and-emmc' chunk
     image_size = os.path.getsize(args.image)
 
     ###########
@@ -111,10 +109,14 @@ def do_flash_image(args, tftp_root):
     block_start = base_addr // mmc_block_size
     out_fullname = os.path.join(tftp_root, chunk_filename)
 
-    # switch to required MMC device/partition
+    # switch to the required MMC device/partition
     conn_send(conn, f"mmc dev {mmc_device} {mmc_part}\r")
     conn_wait_for(conn, uboot_propmt)
 
+    # do in loop:
+    # - read X MB chunk from image file
+    # - save chunk to file in tftp root
+    # - tell u-boot to 'tftp-and-emmc' chunk
     while bytes_sent < image_size:
         # create chunk
         data = f_img.read(chunk_size_in_bytes)
@@ -136,7 +138,8 @@ def do_flash_image(args, tftp_root):
         bytes_sent += len(data)
         block_start += chunk_size_in_blocks
 
-        print(f"{bytes_sent:_}/{image_size:_} ({bytes_sent * 100 // image_size}%)", end="\r")
+        print(f"\nProgress: {bytes_sent:_}/{image_size:_} ({bytes_sent * 100 // image_size}%)")
+        print("===============================")
 
     # send "newline char" to start further output on the new line
     print("")
