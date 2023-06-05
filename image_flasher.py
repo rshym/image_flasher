@@ -7,6 +7,7 @@ import logging
 import argparse
 import traceback
 from typing import List
+from string import printable
 import tftpy
 import threading
 
@@ -168,10 +169,15 @@ def open_connection(args):
 
 
 def conn_wait_for(conn, expect: str):
-    data = conn.read_until(expect.encode('ascii')).decode('ascii')
-    print(data)
-    if expect not in data:
-        raise Exception(f"Timeout waiting for `{expect}` from the device")
+    rcv_str = ""
+    while expect not in rcv_str:
+        data = conn.read(1)
+        if not data:
+            raise TimeoutError(f"Timeout waiting for `{expect}` from the device")
+        rcv_char = chr(data[0])
+        if rcv_char in printable or rcv_char == '\b':
+            print(rcv_char, end='', flush=True)
+        rcv_str += rcv_char
 
 
 def conn_send(conn, data):
