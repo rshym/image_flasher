@@ -83,15 +83,16 @@ def do_flash_image(args, tftp_root):
     conn = open_connection(args)
 
     uboot_propmt = "=>"
-    # wait for interruption prompt
-    try:
-        log.info('Waiting for "Hit any key to stop autoboot"...')
-        conn_wait_for(conn, "Hit any key to stop autoboot:")
-        conn_send(conn, "\r")
-    except:
-        # if prompt 'timeout-ed' send CR to check maybe u-boot is active already
-        conn_send(conn, "\r")
-        conn_wait_for(conn, uboot_propmt)
+
+    # Send 'CR', and check for one of the possible options:
+    # - uboot_prompt appears, if u-boot console is already active
+    # - u-boot is just starting, so we will get "Hit any key.."
+    log.info('Waiting for u-boot prompt...')
+    conn_send(conn, "\r")
+    conn_wait_for_any(conn, [uboot_propmt, "Hit any key to stop autoboot:"])
+    # we got "Hit any key", so let's stop the boot
+    conn_send(conn, "\r")
+    conn_wait_for(conn, uboot_propmt)
 
     image_size = os.path.getsize(args.image)
 
@@ -171,6 +172,20 @@ def open_connection(args):
 def conn_wait_for(conn, expect: str):
     rcv_str = ""
     while expect not in rcv_str:
+        data = conn.read(1)
+        if not data:
+            raise TimeoutError(f"Timeout waiting for `{expect}` from the device")
+        rcv_char = chr(data[0])
+        if rcv_char in printable or rcv_char == '\b':
+            print(rcv_char, end='', flush=True)
+        rcv_str += rcv_char
+
+
+def conn_wait_for_any(conn, expect: List[str]):
+    rcv_str = ""
+    # stay in the read loop until any of expected string is received
+    # in other words - all expected substrings are not in received buffer
+    while all([x not in rcv_str for x in expect]):
         data = conn.read(1)
         if not data:
             raise TimeoutError(f"Timeout waiting for `{expect}` from the device")
