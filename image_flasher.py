@@ -136,19 +136,29 @@ def do_flash_image(args, tftp_root):
     # - save chunk to file in tftp root
     # - tell u-boot to 'tftp-and-emmc' chunk
     while bytes_sent < image_size:
-        # create chunk
         data = f_img.read(chunk_size_in_bytes)
-        f_out = open(out_fullname, "wb")
-        f_out.write(data)
-        f_out.close()
 
         chunk_size_in_blocks = len(data) // mmc_block_size
         if len(data) % mmc_block_size:
             chunk_size_in_blocks += 1
 
-        # instruct u-boot to tftp-and-emmc file
-        conn_send(conn, f"tftp 0x48000000 {chunk_filename}\r")
-        conn_wait_for(conn, uboot_propmt)
+        buffer_is_00_only = True
+        for i in range(len(data)):
+            # check for zero only
+            if (data[i] != 0):
+                buffer_is_00_only = False
+
+        if buffer_is_00_only:
+            conn_send(conn, f"mw.b 0x48000000 0x00 0x{len(data):X}\r")
+            conn_wait_for(conn, uboot_propmt)
+        else:
+            # create chunk
+            f_out = open(out_fullname, "wb")
+            f_out.write(data)
+            f_out.close()
+
+            conn_send(conn, f"tftp 0x48000000 {chunk_filename}\r")
+            conn_wait_for(conn, uboot_propmt)
 
         conn_send(conn, f"mmc write 0x48000000 0x{block_start:X} 0x{chunk_size_in_blocks:X}\r")
         conn_wait_for(conn, uboot_propmt)
