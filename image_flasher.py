@@ -10,6 +10,7 @@ from typing import List
 from string import printable
 import tftpy
 import threading
+import lzma
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
@@ -114,7 +115,15 @@ def do_flash_image(args, tftp_root):
     chunk_filename = "chunk.bin"
     chunk_size_in_bytes = 20*1024*1024
 
-    f_img = open(args.image, "rb")
+    use_lzma = False
+
+    if str(args.image).endswith(".xz"):
+        use_lzma = True
+        f_lzma = lzma.open(args.image)
+        image_size = 0
+    else:
+        f_img = open(args.image, "rb")
+
     bytes_sent = 0
     block_start = base_addr // mmc_block_size
     out_fullname = os.path.join(tftp_root, chunk_filename)
@@ -135,8 +144,14 @@ def do_flash_image(args, tftp_root):
     # - read X MB chunk from image file
     # - save chunk to file in tftp root
     # - tell u-boot to 'tftp-and-emmc' chunk
-    while bytes_sent < image_size:
-        data = f_img.read(chunk_size_in_bytes)
+    while True:
+        if use_lzma:
+            data = f_lzma.read(chunk_size_in_bytes)
+        else:
+            data = f_img.read(chunk_size_in_bytes)
+
+        if not data:
+            break
 
         chunk_size_in_blocks = len(data) // mmc_block_size
         if len(data) % mmc_block_size:
@@ -166,14 +181,21 @@ def do_flash_image(args, tftp_root):
         bytes_sent += len(data)
         block_start += chunk_size_in_blocks
 
-        print(f"\nProgress: {bytes_sent:_}/{image_size:_} ({bytes_sent * 100 // image_size}%)")
+        if image_size:
+            print(f"\nProgress: {bytes_sent:_}/{image_size:_} ({bytes_sent * 100 // image_size}%)")
+        else:
+            print(f"\nProgress: {bytes_sent:_}")
+
         print("===============================")
 
     # send "newline char" to start further output on the new line
     print("")
 
     os.remove(out_fullname)
-
+    if use_lzma:
+        f_lzma.close()
+    else:
+        f_img.close()
     conn.close()
 
     log.info("Image was flashed successfully.")
